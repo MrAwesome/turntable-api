@@ -1,6 +1,8 @@
 import { CommandMessage } from './messages'
 import { User, DJList, Room } from './objects'
 
+export type CommandResult = Registered | Deregistered | AddDJ | RemoveDJ | NewSong | NoSong | Snagged | UpdateVotes | UpdateRoom | Speak | PMed | SongSearchResults;
+
 export interface Registered extends CommandMessage {
   command: 'registered'
   roomid: string
@@ -81,4 +83,46 @@ export interface PMed extends CommandMessage {
   text: string
   time: number
   roomobj: Room
+}
+
+export interface YouTubeResult {
+    sourceid: string
+    source: string
+    _id: string
+    metadata: {
+        adult: boolean
+        artist: string
+        coverart: string
+        length: number
+        region: never[]
+        song: string
+        ytid: string
+    }
+}
+
+export interface SoundCloudResult {
+    sourceid: string
+    source: string
+    _id: string
+    metadata: {
+        artist: string
+        coverart: string
+        length: number
+        original_title: string
+        scid: string
+        sharing: string
+        song: string
+    }
+}
+
+export type SongResult = YouTubeResult | SoundCloudResult;
+
+export interface SongSearchResults extends CommandMessage {
+  command: 'search_complete'
+  docs: Array<SongResult>
+  internal_call: boolean
+  page: number
+  query: string
+  success: boolean
+  userids: string[]
 }

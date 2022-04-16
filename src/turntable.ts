@@ -3,6 +3,7 @@ import { sha1 } from './utils'
 
 import type { CommandMessage } from './types/messages'
 import type {
+  CommandResult,
   AddDJ,
   Deregistered,
   NewSong,
@@ -11,6 +12,8 @@ import type {
   Registered,
   RemoveDJ,
   Snagged,
+  SongSearchResults,
+  SongResult,
   Speak,
   UpdateRoom,
   UpdateVotes
@@ -18,6 +21,7 @@ import type {
 import type { PMHistory, RoomInfo } from './types/actions'
 
 export type EventHandler<MessageType = CommandMessage> = (m: MessageType) => void
+export type CommandCallback = (data: CommandMessage | 'no_session' | CommandResult) => void
 
 export interface TurntableOptions {
   host?: string
@@ -32,6 +36,7 @@ class Turntable {
   options: TurntableOptions
   conn: Connection
   eventHandlers: Record<string, EventHandler[]> = {}
+  songSearchResults: Record<string, SongResult[][] | undefined> = {}
 
   roomId?: string
   currentDjId: string | null = null
@@ -56,12 +61,13 @@ class Turntable {
   on(event: UpdateRoom['command'], handler: EventHandler<UpdateRoom>): void
   on(event: Speak['command'], handler: EventHandler<Speak>): void
   on(event: PMed['command'], handler: EventHandler<PMed>): void
+  on(event: SongSearchResults['command'], handler: EventHandler<SongSearchResults>): void
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   on(event: string, handler: EventHandler<any>) {
     this.eventHandlers[event] ? this.eventHandlers[event].push(handler) : (this.eventHandlers[event] = [handler])
   }
 
-  onMessage: MessageCallback = message => {
+  onMessage: CommandCallback = async (message) => {
     if (message == 'no_session') {
       this.authenticate()
     } else {
@@ -71,6 +77,16 @@ class Turntable {
       } else if (message.command == 'nosong') {
         this.currentDjId = null
         this.currentSongId = null
+      } else if (message.command == 'search_complete') {
+        const {page, query, docs} = message as SongSearchResults;
+
+        // NOTE: Pages start at 1
+        if (this.songSearchResults[query] === undefined) {
+          this.songSearchResults[query] = [];
+        }
+        if (this.songSearchResults[query]![page-1] === undefined) {
+          this.songSearchResults[query]![page-1] = docs;
+        }
       }
 
       this.eventHandlers[message.command]?.forEach(handler => handler.apply(this, [message]))
@@ -78,6 +94,18 @@ class Turntable {
   }
 
   async authenticate() {
+    return new Promise((resolve, reject) => {
+      try {
+        this.conn.socket.on('open', async () => {
+          resolve(this.authenticateINNER());
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  private async authenticateINNER() {
     await this.updatePresence()
     await this.setBot()
 
@@ -89,67 +117,67 @@ class Turntable {
     this.currentSongId = room.metadata.current_song?._id ?? null
   }
 
-  updatePresence() {
+  async updatePresence() {
     return this.conn.sendMessage({ api: 'presence.update', status: 'available' })
   }
 
-  setBot() {
+  async setBot() {
     return this.conn.sendMessage({ api: 'user.set_bot' })
   }
 
-  join(roomid: string) {
+  async join(roomid: string) {
     return this.conn.sendMessage({ api: 'room.register', roomid })
   }
 
-  leave() {
+  async leave() {
     return this.conn.sendMessage({ api: 'room.deregister' })
   }
 
-  roomInfo(): Promise<RoomInfo> {
+  async roomInfo(): Promise<RoomInfo> {
     return this.conn.sendMessage({ api: 'room.info', roomid: this.roomId })
   }
 
-  speak(text: string) {
+  async speak(text: string) {
     return this.conn.sendMessage({ api: 'room.speak', roomid: this.roomId, text })
   }
 
-  pm(text: string, receiverid: string) {
+  async pm(text: string, receiverid: string) {
     return this.conn.sendMessage({ api: 'pm.send', receiverid, text })
   }
 
-  pmHistory(receiverid: string): Promise<PMHistory> {
+  async pmHistory(receiverid: string): Promise<PMHistory> {
     return this.conn.sendMessage({ api: 'pm.history', receiverid })
   }
 
-  fan(djid: string) {
+  async fan(djid: string) {
     return this.conn.sendMessage({ api: 'user.become_fan', djid })
   }
 
-  unfan(djid: string) {
+  async unfan(djid: string) {
     return this.conn.sendMessage({ api: 'user.remove_fan', djid })
   }
 
-  addModerator(target_userid: string) {
+  async addModerator(target_userid: string) {
     return this.conn.sendMessage({ api: 'room.add_moderator', roomid: this.roomId, target_userid })
   }
 
-  removeModerator(target_userid: string) {
+  async removeModerator(target_userid: string) {
     return this.conn.sendMessage({ api: 'room.rem_moderator', roomid: this.roomId, target_userid })
   }
 
-  bootUser(target_userid: string, reason: string) {
+  async bootUser(target_userid: string, reason: string) {
     return this.conn.sendMessage({ api: 'room.boot_user', roomid: this.roomId, target_userid, reason })
   }
 
-  addDJ() {
+  async addDJ() {
     return this.conn.sendMessage({ api: 'room.add_dj', roomid: this.roomId })
   }
 
-  removeDJ(djid?: string) {
+  async removeDJ(djid?: string) {
     return this.conn.sendMessage({ api: 'room.rem_dj', roomid: this.roomId, djid: djid || this.options.userId })
   }
 
-  skipSong() {
+  async skipSong() {
     return this.conn.sendMessage({
       api: 'room.stop_song',
       roomid: this.roomId,
@@ -195,7 +223,7 @@ class Turntable {
     return this.playlistAdd()
   }
 
-  vote(val: 'up' | 'down') {
+  async vote(val: 'up' | 'down') {
     if (!this.currentSongId) return Promise.resolve(null)
 
     const vh = sha1(this.roomId + val + this.currentSongId)
@@ -205,20 +233,59 @@ class Turntable {
     return this.conn.sendMessage({ api: 'room.vote', roomid: this.roomId, val, vh, th, ph })
   }
 
-  voteUp() {
+  async voteUp() {
     return this.vote('up')
   }
 
-  voteDown() {
+  async voteDown() {
     return this.vote('down')
   }
 
-  playlistAdd(songId = this.currentSongId, playlist_name = 'default', index = -1) {
+  async playlistAdd(songId = this.currentSongId, playlist_name = 'default', index = -1) {
     return this.conn.sendMessage({ api: 'playlist.add', playlist_name, song_dict: { fileid: songId }, index })
   }
 
-  playlistRemove(index = 0, playlist_name = 'default') {
+  async playlistRemove(index = 0, playlist_name = 'default') {
     return this.conn.sendMessage({ api: 'playlist.remove', playlist_name, index })
+  }
+
+  async startSongSearch(query: string) {
+    return this.conn.sendMessage({ api: 'file.search', query })
+  }
+
+  // NOTE: undefined here means that no results have yet been returned.
+  getSongSearchResultsForQuery(query: string): SongResult[] | undefined {
+    return this.songSearchResults[query]?.flat()
+  }
+
+  async waitForSongSearchResultsForQuery(
+    query: string,
+    waitForMs: number = 5000,
+    intervalWaitCheckMs: number = 100
+  ): Promise<SongResult[]> {
+    return new Promise((resolve, reject) => {
+      let foundResult = false
+      setTimeout(() => {
+        if (!foundResult) {
+          reject(new Error("Timed out waiting for song results!"));
+        }
+      }, waitForMs)
+
+      const getRes = () => {
+        const res = this.getSongSearchResultsForQuery(query);
+        if (res !== undefined) {
+          resolve(res);
+        }
+      }
+
+      getRes()
+      setInterval(getRes, intervalWaitCheckMs)
+    });
+  }
+
+  async search(query: string): Promise<SongResult[]> {
+    this.startSongSearch(query);
+    return this.waitForSongSearchResultsForQuery(query);
   }
 }
 
