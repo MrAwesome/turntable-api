@@ -1,4 +1,4 @@
-import Connection, { MessageCallback } from './connection'
+import Connection from './connection'
 import { sha1 } from './utils'
 
 import type { CommandMessage } from './types/messages'
@@ -254,22 +254,17 @@ class Turntable {
   }
 
   // NOTE: undefined here means that no results have yet been returned.
-  getSongSearchResultsForQuery(query: string): SongResult[] | undefined {
-    return this.songSearchResults[query]?.flat()
+  getSongSearchResultsForQuery(query: string): SongResult[][] | undefined {
+    return this.songSearchResults[query]?.filter((x) => x !== undefined) as SongResult[][]
   }
 
   async waitForSongSearchResultsForQuery(
     query: string,
     waitForMs: number = 5000,
     intervalWaitCheckMs: number = 100
-  ): Promise<SongResult[]> {
+  ): Promise<SongResult[][]> {
     return new Promise((resolve, reject) => {
-      let foundResult = false
-      setTimeout(() => {
-        if (!foundResult) {
-          reject(new Error("Timed out waiting for song results!"));
-        }
-      }, waitForMs)
+      setTimeout(() => reject(new Error("Timed out waiting for song results!")), waitForMs)
 
       const getRes = () => {
         const res = this.getSongSearchResultsForQuery(query);
@@ -283,9 +278,17 @@ class Turntable {
     });
   }
 
-  async search(query: string): Promise<SongResult[]> {
+  // NOTE: named differently from the old ttapi, since it returns all known pages of song results
+  // instead of the raw result object
+  async searchForSong(query: string): Promise<SongResult[][]> {
     this.startSongSearch(query);
     return this.waitForSongSearchResultsForQuery(query);
+  }
+
+  async quickAddSong(query: string, playlistName: string): Promise<void> {
+    const results = await this.searchForSong(query);
+    const song = results[0][0];
+    await this.playlistAdd(song._id, playlistName, 0);
   }
 }
 
