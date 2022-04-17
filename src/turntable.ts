@@ -249,6 +249,14 @@ class Turntable {
     return this.conn.sendMessage({ api: 'playlist.remove', playlist_name, index })
   }
 
+  async playlistAll(playlist_name = 'default') {
+    return this.conn.sendMessage({ api: 'playlist.all', playlist_name })
+  }
+
+  async playlistListAll() {
+    return this.conn.sendMessage({ api: 'playlist.list_all' })
+  }
+
   async startSongSearch(query: string) {
     return this.conn.sendMessage({ api: 'file.search', query })
   }
