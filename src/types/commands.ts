@@ -1,5 +1,5 @@
-import { CommandMessage } from './messages'
-import { User, DJList, Room } from './objects'
+import {CommandMessage} from './messages'
+import {User, DJList, Room} from './objects'
 
 export type CommandResult = Registered | Deregistered | AddDJ | RemoveDJ | NewSong | NoSong | Snagged | UpdateVotes | UpdateRoom | Speak | PMed | SongSearchResults;
 
@@ -51,7 +51,7 @@ export interface Snagged extends CommandMessage {
 export interface UpdateVotes extends CommandMessage {
   command: 'update_votes'
   roomid: string
-  current_song: { starttime: number; _id: string }
+  current_song: {starttime: number; _id: string}
   room: {
     metadata: {
       downvotes: number
@@ -86,43 +86,47 @@ export interface PMed extends CommandMessage {
 }
 
 export interface YouTubeResult {
-    sourceid: string
-    source: string
-    _id: string
-    metadata: {
-        adult: boolean
-        artist: string
-        coverart: string
-        length: number
-        region: never[]
-        song: string
-        ytid: string
-    }
+  sourceid: string
+  source: string
+  _id: string
+  metadata: {
+    adult: boolean
+    artist: string
+    coverart: string
+    length: number
+    region: never[]
+    song: string
+    ytid: string
+  }
 }
 
 export interface SoundCloudResult {
-    sourceid: string
-    source: string
-    _id: string
-    metadata: {
-        artist: string
-        coverart: string
-        length: number
-        original_title: string
-        scid: string
-        sharing: string
-        song: string
-    }
+  sourceid: string
+  source: string
+  _id: string
+  metadata: {
+    artist: string
+    coverart: string
+    length: number
+    original_title: string
+    scid: string
+    sharing: string
+    song: string
+  }
 }
 
 export type SongResult = YouTubeResult | SoundCloudResult;
 
 export interface SongSearchResults extends CommandMessage {
   command: 'search_complete'
-  docs: Array<SongResult>
+  docs: SongResult[]
   internal_call: boolean
   page: number
   query: string
   success: boolean
   userids: string[]
+}
+
+export interface PlaylistAllResults extends CommandMessage {
+  list: SongResult[]
 }

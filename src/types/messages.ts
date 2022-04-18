@@ -5,6 +5,17 @@ export interface ResponseMessage {
   msgid: number
 }
 
+export interface ErrorResponse extends ResponseMessage {
+  err: string,
+  success: false,
+}
+
+export interface SuccessResponse extends ResponseMessage {
+  success: true,
+}
+
+export type Response<T> = (T & SuccessResponse) | ErrorResponse;
+
 export interface CommandMessage {
   command: string
   success: boolean

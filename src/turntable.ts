@@ -1,7 +1,7 @@
 import Connection from './connection'
 import { sha1 } from './utils'
 
-import type { CommandMessage } from './types/messages'
+import type { CommandMessage, Response } from './types/messages'
 import type {
   CommandResult,
   AddDJ,
@@ -16,7 +16,8 @@ import type {
   SongResult,
   Speak,
   UpdateRoom,
-  UpdateVotes
+  UpdateVotes,
+  PlaylistAllResults
 } from './types/commands'
 import type { PMHistory, RoomInfo } from './types/actions'
 
@@ -93,28 +94,35 @@ class Turntable {
     }
   }
 
-  async authenticate() {
+  async authenticate(): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
         this.conn.socket.on('open', async () => {
-          resolve(this.authenticateINNER());
+        try {
+          const authRes = await this.authenticateINNER();
+          resolve(authRes);
+            } catch (err) {
+                reject(err);
+            }
         });
-      } catch (err) {
-        reject(err);
-      }
     });
   }
 
-  private async authenticateINNER() {
+  private async authenticateINNER(): Promise<void> {
     await this.updatePresence()
     await this.setBot()
 
     await this.join(this.options.roomId)
     this.roomId = this.options.roomId
 
-    const { room } = await this.roomInfo()
-    this.currentDjId = room.metadata.current_dj
-    this.currentSongId = room.metadata.current_song?._id ?? null
+    const infoRes = await this.roomInfo()
+
+    if (infoRes.success) {
+        const {room} = infoRes;
+        this.currentDjId = room.metadata.current_dj
+        this.currentSongId = room.metadata.current_song?._id ?? null
+    } else {
+        throw new Error(`Failed to get roominfo! Error:, ${infoRes.err}`);
+    }
   }
 
   async updatePresence() {
@@ -133,7 +141,7 @@ class Turntable {
     return this.conn.sendMessage({ api: 'room.deregister' })
   }
 
-  async roomInfo(): Promise<RoomInfo> {
+  async roomInfo(): Promise<Response<RoomInfo>> {
     return this.conn.sendMessage({ api: 'room.info', roomid: this.roomId })
   }
 
@@ -145,7 +153,7 @@ class Turntable {
     return this.conn.sendMessage({ api: 'pm.send', receiverid, text })
   }
 
-  async pmHistory(receiverid: string): Promise<PMHistory> {
+  async pmHistory(receiverid: string): Promise<Response<PMHistory>> {
     return this.conn.sendMessage({ api: 'pm.history', receiverid })
   }
 
@@ -245,16 +253,28 @@ class Turntable {
     return this.conn.sendMessage({ api: 'playlist.add', playlist_name, song_dict: { fileid: songId }, index })
   }
 
-  async playlistRemove(index = 0, playlist_name = 'default') {
+  async playlistRemove(index = 0, playlist_name = 'default'): Promise<Response<{song_dict: Array<{fileid: string}>}>> {
     return this.conn.sendMessage({ api: 'playlist.remove', playlist_name, index })
   }
 
-  async playlistAll(playlist_name = 'default') {
+  async playlistAll(playlist_name = 'default'): Promise<Response<PlaylistAllResults>> {
     return this.conn.sendMessage({ api: 'playlist.all', playlist_name })
   }
 
   async playlistListAll() {
     return this.conn.sendMessage({ api: 'playlist.list_all' })
+  }
+
+  async playlistDelete(playlistName = 'default') {
+    return this.conn.sendMessage({api: 'playlist.delete', playlist_name: playlistName});
+  }
+
+  async playlistCreate(playlistName = 'default') {
+     return this.conn.sendMessage({api: 'playlist.create', playlist_name: playlistName});
+  }
+
+  async playlistSwitch(playlistName = 'default'): Promise<Response<{playlist_name: string}>> {
+     return this.conn.sendMessage({api: 'playlist.switch', playlist_name: playlistName});
   }
 
   async startSongSearch(query: string) {
@@ -288,15 +308,16 @@ class Turntable {
 
   // NOTE: named differently from the old ttapi, since it returns all known pages of song results
   // instead of the raw result object
-  async searchForSong(query: string): Promise<SongResult[][]> {
+  async searchForSongs(query: string): Promise<SongResult[][]> {
     this.startSongSearch(query);
     return this.waitForSongSearchResultsForQuery(query);
   }
 
-  async quickAddSong(query: string, playlistName: string): Promise<void> {
-    const results = await this.searchForSong(query);
+  async quickAddSong(query: string, playlistName: string): Promise<SongResult> {
+    const results = await this.searchForSongs(query);
     const song = results[0][0];
     await this.playlistAdd(song._id, playlistName, 0);
+    return song;
   }
 }
 
